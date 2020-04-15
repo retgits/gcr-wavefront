@@ -41,13 +41,13 @@ wfconfig := &gcrwavefront.WavefrontConfig{
 }
 
 // Make sure the sender is configured and initialized
-err := cfg.ConfigureSender()
+err := wfconfig.ConfigureSender()
 if err != nil {
     panic(err)
 }
 
 // Wrap your handler
-http.HandleFunc("/", cfg.WrapHandlerFunc(handler))
+http.HandleFunc("/", wfconfig.WrapHandlerFunc(handler))
 ```
 
 A complete sample app can be found in the [examples](./examples) folder
