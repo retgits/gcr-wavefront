@@ -23,7 +23,7 @@ func main() {
 
 	cfg := gcrwavefront.WavefrontConfig{
 		Server:        "https://try.wavefront.com",
-		Token:         "0731ca22-2e9f-4ea5-ba62-c210de96c9c9",
+		Token:         "<my token>",
 		BatchSize:     10000,
 		MaxBufferSize: 50000,
 		FlushInterval: 1,
