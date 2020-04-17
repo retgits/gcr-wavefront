@@ -1,19 +1,20 @@
-package acmeserverless
+package gcrwavefront
 
 import (
 	"fmt"
-	"net"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/julienschmidt/httprouter"
 	wavefront "github.com/wavefronthq/wavefront-sdk-go/senders"
 )
 
 const (
 	// ErrCreateSender in case any errors occur while creating the Wavefront Direct Sender
 	ErrCreateSender = "error creating wavefront sender: %s"
+	// DebugServerName has the server name to set when you want to print things to the log instead of sending data to Wavefront
+	DebugServerName = "debug"
 )
 
 var sender wavefront.Sender
@@ -35,9 +36,18 @@ func (rec *WFStatusRecorder) Write(payload []byte) (int, error) {
 	return size, err
 }
 
+type metrics struct {
+	EndTime        time.Time
+	Latency        time.Duration
+	HTTPStatusCode int
+	BytesOut       int
+	BytesIn        int
+}
+
 // WavefrontConfig configures the direct ingestion sender to Wavefront.
 type WavefrontConfig struct {
 	// Wavefront URL of the form https://<INSTANCE>.wavefront.com.
+	// Setting the server to debug will print the metrics to a log instead of sending them to Wavefront
 	Server string
 	// Wavefront API token with direct data ingestion permission.
 	Token string
@@ -79,79 +89,42 @@ func (w *WavefrontConfig) ConfigureSender() error {
 	return nil
 }
 
-// WrapHandlerFunc ...
-func (wc *WavefrontConfig) WrapHandlerFunc(f http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Start timer
-		start := time.Now()
-		// Initialize the status to 200 in case WriteHeader is not called
-		rec := &WFStatusRecorder{w, 200, 0}
-		defer emitMetrics(wc, rec, r, start)
-		f(rec, r)
-	}
-}
-
-// WrapHTTPHandle ...
-func (wc *WavefrontConfig) WrapHTTPHandle(f httprouter.Handle) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		// Start timer
-		start := time.Now()
-		// Initialize the status to 200 in case WriteHeader is not called
-		rec := &WFStatusRecorder{w, 200, 0}
-		defer emitMetrics(wc, rec, r, start)
-		f(rec, r, p)
-	}
-}
-
 func emitMetrics(wc *WavefrontConfig, rec *WFStatusRecorder, r *http.Request, start time.Time) {
-	// Stop timer
-	end := time.Now()
-	latency := end.Sub(start)
-	statusCode := rec.status
-	bytesOut := rec.size
-	bytesIn := r.ContentLength
-
 	// Add tags
 	wc.PointTags["path"] = r.URL.Path
-	wc.PointTags["clientIP"] = getClientIP(r)
 	wc.PointTags["method"] = r.Method
 	wc.PointTags["userAgent"] = r.UserAgent()
 
-	// Send metrics
-	// <metricName> <metricValue> [<timestamp>] source=<source> [pointTags]
-	sender.SendMetric(strings.Join([]string{wc.MetricPrefix, ".latency"}, ""), float64(latency.Milliseconds()), end.Unix(), wc.Source, wc.PointTags)
-	sender.SendMetric(strings.Join([]string{wc.MetricPrefix, ".bytes.in"}, ""), float64(bytesIn), end.Unix(), wc.Source, wc.PointTags)
-	sender.SendMetric(strings.Join([]string{wc.MetricPrefix, ".bytes.out"}, ""), float64(bytesOut), end.Unix(), wc.Source, wc.PointTags)
-	switch {
-	case statusCode > 199 && statusCode < 300:
-		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.success"}, ""), 1, wc.Source, wc.PointTags)
-	case statusCode > 299 && statusCode < 400:
-		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.redirection"}, ""), 1, wc.Source, wc.PointTags)
-	case statusCode > 399 && statusCode < 500:
-		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.error.client"}, ""), 1, wc.Source, wc.PointTags)
-	case statusCode > 499 && statusCode < 600:
-		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.error.server"}, ""), 1, wc.Source, wc.PointTags)
-	}
-
-	// DEBUG
-	fmt.Printf("Tags: %+v\nDuration: %+v\nStatus: %d\nBytesOut: %d\nBytesIn: %d", wc.PointTags, latency, statusCode, bytesOut, bytesIn)
+	// Stop timer and emit metrics
+	end := time.Now()
+	wc.emitMetrics(metrics{
+		EndTime:        end,
+		Latency:        end.Sub(start),
+		HTTPStatusCode: rec.status,
+		BytesOut:       rec.size,
+		BytesIn:        int(r.ContentLength),
+	})
 }
 
-// getClientIP implements a best effort algorithm to return the real client IP, it parses
-// X-Real-IP and X-Forwarded-For in order to work properly with reverse-proxies such us: nginx or haproxy.
-// Use X-Forwarded-For before X-Real-Ip as nginx uses X-Real-Ip with the proxy's IP.
-// source: https://github.com/gin-gonic/gin/blob/master/context.go
-func getClientIP(r *http.Request) string {
-	clientIP := r.Header.Get("X-Forwarded-For")
-	clientIP = strings.TrimSpace(strings.Split(clientIP, ",")[0])
-	if clientIP == "" {
-		clientIP = strings.TrimSpace(r.Header.Get("X-Real-Ip"))
-		if clientIP == "" {
-			if ip, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil {
-				clientIP = ip
-			}
-		}
+func (wc *WavefrontConfig) emitMetrics(m metrics) {
+	// Print to log
+	if wc.Server == DebugServerName {
+		log.Printf("Tags: %+v\nDuration: %+v\nStatus: %d\nBytesOut: %d\nBytesIn: %d", wc.PointTags, m.Latency.Microseconds(), m.HTTPStatusCode, m.BytesOut, m.BytesIn)
+		return
 	}
 
-	return clientIP
+	// Send metrics
+	sender.SendMetric(strings.Join([]string{wc.MetricPrefix, ".latency"}, ""), float64(m.Latency.Microseconds()), m.EndTime.Unix(), wc.Source, wc.PointTags)
+	sender.SendMetric(strings.Join([]string{wc.MetricPrefix, ".bytes.in"}, ""), float64(m.BytesIn), m.EndTime.Unix(), wc.Source, wc.PointTags)
+	sender.SendMetric(strings.Join([]string{wc.MetricPrefix, ".bytes.out"}, ""), float64(m.BytesOut), m.EndTime.Unix(), wc.Source, wc.PointTags)
+	switch {
+	case m.HTTPStatusCode > 199 && m.HTTPStatusCode < 300:
+		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.success"}, ""), 1, wc.Source, wc.PointTags)
+	case m.HTTPStatusCode > 299 && m.HTTPStatusCode < 400:
+		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.redirection"}, ""), 1, wc.Source, wc.PointTags)
+	case m.HTTPStatusCode > 399 && m.HTTPStatusCode < 500:
+		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.error.client"}, ""), 1, wc.Source, wc.PointTags)
+	case m.HTTPStatusCode > 499 && m.HTTPStatusCode < 600:
+		sender.SendDeltaCounter(strings.Join([]string{wc.MetricPrefix, ".status.error.server"}, ""), 1, wc.Source, wc.PointTags)
+	}
 }

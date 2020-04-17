@@ -22,7 +22,7 @@ func main() {
 	log.Print("Hello world sample started.")
 
 	cfg := gcrwavefront.WavefrontConfig{
-		Server:        "https://try.wavefront.com",
+		Server:        gcrwavefront.DebugServerName,
 		Token:         "my-api-key",
 		BatchSize:     10000,
 		MaxBufferSize: 50000,

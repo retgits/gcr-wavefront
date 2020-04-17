@@ -3,19 +3,20 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 
-	"github.com/julienschmidt/httprouter"
+	"github.com/buaazp/fasthttprouter"
+	"github.com/valyala/fasthttp"
+
 	gcrwavefront "github.com/retgits/gcr-wavefront"
 )
 
-func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	fmt.Fprint(w, "Welcome!\n")
+func Index(ctx *fasthttp.RequestCtx) {
+	fmt.Fprint(ctx, "Welcome!\n")
 }
 
-func Hello(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	fmt.Fprintf(w, "hello, %s!\n", ps.ByName("name"))
+func Hello(ctx *fasthttp.RequestCtx) {
+	fmt.Fprintf(ctx, "hello, %s!\n", ctx.UserValue("name"))
 }
 
 func main() {
@@ -36,14 +37,13 @@ func main() {
 		panic(err)
 	}
 
-	router := httprouter.New()
-	router.GET("/", cfg.WrapHTTPHandle(Index))
-	router.GET("/hello/:name", cfg.WrapHTTPHandle(Hello))
+	router := fasthttprouter.New()
+	router.GET("/", cfg.WrapFastHTTPRequest(Index))
+	router.GET("/hello/:name", cfg.WrapFastHTTPRequest(Hello))
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), router))
+	log.Fatal(fasthttp.ListenAndServe(fmt.Sprintf(":%s", port), router.Handler))
 }
