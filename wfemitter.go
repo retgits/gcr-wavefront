@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/julienschmidt/httprouter"
 	wavefront "github.com/wavefronthq/wavefront-sdk-go/senders"
 )
 
@@ -90,6 +91,18 @@ func (wc *WavefrontConfig) WrapHandlerFunc(f http.HandlerFunc) http.HandlerFunc 
 	}
 }
 
+// WrapHTTPHandle ...
+func (wc *WavefrontConfig) WrapHTTPHandle(f httprouter.Handle) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		// Start timer
+		start := time.Now()
+		// Initialize the status to 200 in case WriteHeader is not called
+		rec := &WFStatusRecorder{w, 200, 0}
+		defer emitMetrics(wc, rec, r, start)
+		f(rec, r, p)
+	}
+}
+
 func emitMetrics(wc *WavefrontConfig, rec *WFStatusRecorder, r *http.Request, start time.Time) {
 	// Stop timer
 	end := time.Now()
@@ -121,7 +134,7 @@ func emitMetrics(wc *WavefrontConfig, rec *WFStatusRecorder, r *http.Request, st
 	}
 
 	// DEBUG
-	//fmt.Printf("Tags: %+v\nDuration: %+v\nStatus: %d\nBytesOut: %d\nBytesIn: %d", wc.PointTags, latency, statusCode, bytesOut, bytesIn)
+	fmt.Printf("Tags: %+v\nDuration: %+v\nStatus: %d\nBytesOut: %d\nBytesIn: %d", wc.PointTags, latency, statusCode, bytesOut, bytesIn)
 }
 
 // getClientIP implements a best effort algorithm to return the real client IP, it parses
