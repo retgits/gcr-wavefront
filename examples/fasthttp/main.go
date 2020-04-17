@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/buaazp/fasthttprouter"
+	"github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
 
 	gcrwavefront "github.com/retgits/gcr-wavefront"
@@ -37,7 +37,7 @@ func main() {
 		panic(err)
 	}
 
-	router := fasthttprouter.New()
+	router := router.New()
 	router.GET("/", cfg.WrapFastHTTPRequest(Index))
 	router.GET("/hello/:name", cfg.WrapFastHTTPRequest(Hello))
 

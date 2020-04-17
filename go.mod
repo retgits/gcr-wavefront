@@ -3,8 +3,8 @@ module github.com/retgits/gcr-wavefront
 go 1.14
 
 require (
-	github.com/buaazp/fasthttprouter v0.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/fasthttp/router v1.0.2 // indirect
 	github.com/julienschmidt/httprouter v1.3.1-0.20200114094804-8c9f31f047a3
 	github.com/klauspost/compress v1.10.4 // indirect
 	github.com/klauspost/cpuid v1.2.3 // indirect
